@@ -1,0 +1,37 @@
+import pandas as pd
+import numpy as np
+
+startup = pd.read_csv("Startup_metadado.csv")
+invest = pd.reas_csv("dados.csv")
+
+#somente variaveis úteis
+startup = startup [['id_empresa', 'empresa', 'votos']]
+invest = invest [['id', 'id_empresa', 'avaliacao']]
+
+#elimina valores igual a zero
+startup.dropna(inplace = True)
+invest.dropna(inplace = True)
+
+# Concatenando os dataframes
+invest_e_startup = invest.merge(startup, on = 'id_empresa')
+invest_e_startup.head()
+
+# Agora precisamos fazer um PIVOT. O que queremos é que cada ID_USUARIO seja uma variavel com o respectivo valor de nota
+# para cada filme avaliado
+startup_pivot = invest_e_startup.pivot_table(columns = 'id_empresa', index = 'id', values = 'avaliacao')
+startup_pivot
+
+# Os valores que são nulos iremos preencher com ZERO
+startup_pivot.fillna(0, inplace = True)
+startup_pivot
+
+from scipy.sparse import csr_matrix
+
+# Vamos transformar o nosso dataset em uma matriz sparsa
+startup_sparse = csr_matrix(startup_pivot)
+
+from sklearn.neighbors import NearestNeighbors
+
+# Criando e treinando o modelo preditivo
+modelo = NearestNeighbors(algorithm = 'brute',n_neighbors=3,metric="euclidean")
+modelo.fit(startup_sparse)
