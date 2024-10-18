@@ -1,37 +1,86 @@
 import pandas as pd
 import numpy as np
-
-startup = pd.read_csv("Startup_metadado.csv")
-invest = pd.reas_csv("dados.csv")
-
-#somente variaveis úteis
-startup = startup [['id_empresa', 'empresa', 'votos']]
-invest = invest [['id', 'id_empresa', 'avaliacao']]
-
-#elimina valores igual a zero
-startup.dropna(inplace = True)
-invest.dropna(inplace = True)
-
-# Concatenando os dataframes
-invest_e_startup = invest.merge(startup, on = 'id_empresa')
-invest_e_startup.head()
-
-# Agora precisamos fazer um PIVOT. O que queremos é que cada ID_USUARIO seja uma variavel com o respectivo valor de nota
-# para cada filme avaliado
-startup_pivot = invest_e_startup.pivot_table(columns = 'id_empresa', index = 'id', values = 'avaliacao')
-startup_pivot
-
-# Os valores que são nulos iremos preencher com ZERO
-startup_pivot.fillna(0, inplace = True)
-startup_pivot
-
 from scipy.sparse import csr_matrix
+from sklearn.neighbors import NearestNeighbors
+from sqlalchemy import create_engine
+from flask import Flask, jsonify, request
 
-# Vamos transformar o nosso dataset em uma matriz sparsa
+# Inicializando o aplicativo Flask
+app = Flask(__name__)
+
+# Função para carregar dados do banco de dados
+def carregar_dados_banco(engine):
+    # Consultando as tabelas startup e investidor
+    query_startup = "SELECT id_empresa, votos FROM STARTUP_METADADO"
+    query_invest = "SELECT id_investidor, id_empresa, avaliacao FROM DADOS"
+
+    # Lendo os dados do banco de dados e convertendo em DataFrame
+    startup = pd.read_sql(query_startup, engine)
+    invest = pd.read_sql(query_invest, engine)
+
+    return startup, invest
+
+# Conexão com o banco de dados (ajuste a URL conforme suas credenciais)
+engine = create_engine('mysql+pymysql://root:root@127.0.0.1:3306/projeto_arcanjo_bd')
+
+# Carregando os dados uma única vez quando o servidor Flask iniciar
+startup, invest = carregar_dados_banco(engine)
+
+# Processando os dados para criar a tabela pivô
+startup = startup[['id_empresa', 'votos']]
+invest = invest[['id_investidor', 'id_empresa', 'avaliacao']]
+startup.dropna(inplace=True)
+invest.dropna(inplace=True)
+invest_e_startup = invest.merge(startup, on='id_empresa')
+startup_pivot = invest_e_startup.pivot_table(columns='id_empresa', index='id_investidor', values='avaliacao')
+startup_pivot.fillna(0, inplace=True)
 startup_sparse = csr_matrix(startup_pivot)
 
-from sklearn.neighbors import NearestNeighbors
-
-# Criando e treinando o modelo preditivo
-modelo = NearestNeighbors(algorithm = 'brute',n_neighbors=3,metric="euclidean")
+# Criando o modelo de recomendação KNN
+modelo = NearestNeighbors(algorithm='brute', metric="euclidean")
 modelo.fit(startup_sparse)
+
+# Função de recomendação de startups para o investidor
+def recomendar_startups(investidor_id, n_recomendacoes=3):
+    # Verifica se o investidor existe no dataset
+    if investidor_id not in startup_pivot.index:
+        return {"error": f"Investidor {investidor_id} não encontrado no dataset."}
+
+    # Pegando o perfil do investidor (as avaliações que ele fez)
+    investidor_perfil = startup_pivot.loc[investidor_id].values.reshape(1, -1)
+    print(investidor_perfil)
+
+    # Verificar quantas startups foram avaliadas pelo investidor
+    avaliadas = np.sum(investidor_perfil != 0)
+
+    if avaliadas == 0:
+        # Retornar as startups mais populares
+        recomendadas = list(startup.sort_values(by='votos', ascending=False)['id_empresa'][:n_recomendacoes])
+        return {"investidor_id": investidor_id, "startups_recomendadas": recomendadas}
+
+    # Ajustar o número de recomendações para não exceder o número de startups avaliadas
+    n_recomendacoes = min(n_recomendacoes, avaliadas)
+    print(n_recomendacoes)
+
+    try:
+        distances, sugestions = modelo.kneighbors(investidor_perfil, n_neighbors=n_recomendacoes)
+        startups_recomendadas = startup_pivot.columns[sugestions[0]].tolist()
+        return {"investidor_id": investidor_id, "startups_recomendadas": startups_recomendadas}
+    except IndexError as e:
+        return {"error": f"Erro ao recomendar para o investidor {investidor_id}: {str(e)}"}
+
+# Rota para obter recomendações de startups para um investidor
+@app.route("/recomendacao/<int:investidor_id>", methods=["GET"])
+def recomendacao(investidor_id):
+    # Obtendo o número de recomendações da query string (padrão = 3)
+    n_recomendacoes = request.args.get("n", default=3, type=int)
+
+    # Chamando a função de recomendação
+    recomendacao_resultado = recomendar_startups(investidor_id, n_recomendacoes)
+
+    # Retornando as recomendações em formato JSON
+    return jsonify(recomendacao_resultado)
+
+# Executando o servidor Flask
+if __name__ == "__main__":
+    app.run(debug=True)
