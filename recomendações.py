@@ -11,8 +11,8 @@ app = Flask(__name__)
 # Função para carregar dados do banco de dados
 def carregar_dados_banco(engine):
     # Consultando as tabelas startup e investidor
-    query_startup = "SELECT id_empresa, votos FROM STARTUP_METADADO"
-    query_invest = "SELECT id_investidor, id_empresa, avaliacao FROM DADOS"
+    query_startup = "SELECT id_empresa, votos FROM startup_metadado"
+    query_invest = "SELECT id_investidor, id_empresa, avaliacao FROM dados"
 
     # Lendo os dados do banco de dados e convertendo em DataFrame
     startup = pd.read_sql(query_startup, engine)
@@ -21,7 +21,7 @@ def carregar_dados_banco(engine):
     return startup, invest
 
 # Conexão com o banco de dados (ajuste a URL conforme suas credenciais)
-engine = create_engine('mysql+pymysql://root:root@127.0.0.1:3306/projeto_arcanjo_bd')
+engine = create_engine('mysql+pymysql://admin:Arcanjo2024@projetoarcanjobd.cfuwmca4ushn.us-east-1.rds.amazonaws.com:3306/projetoarcanjobd')
 
 # Carregando os dados uma única vez quando o servidor Flask iniciar
 startup, invest = carregar_dados_banco(engine)
@@ -53,10 +53,10 @@ def recomendar_startups(investidor_id, n_recomendacoes=3):
     # Verificar quantas startups foram avaliadas pelo investidor
     avaliadas = np.sum(investidor_perfil != 0)
 
-    if avaliadas == 0:
+    #if avaliadas == 0:
         # Retornar as startups mais populares
-        recomendadas = list(startup.sort_values(by='votos', ascending=False)['id_empresa'][:n_recomendacoes])
-        return {"investidor_id": investidor_id, "startups_recomendadas": recomendadas}
+        #recomendadas = list(startup.sort_values(by='votos', ascending=False)['id_empresa'][:n_recomendacoes])
+        #return {"investidor_id": investidor_id, "startups_recomendadas": recomendadas}
 
     # Ajustar o número de recomendações para não exceder o número de startups avaliadas
     n_recomendacoes = min(n_recomendacoes, avaliadas)
@@ -67,7 +67,9 @@ def recomendar_startups(investidor_id, n_recomendacoes=3):
         startups_recomendadas = startup_pivot.columns[sugestions[0]].tolist()
         return {"investidor_id": investidor_id, "startups_recomendadas": startups_recomendadas}
     except IndexError as e:
-        return {"error": f"Erro ao recomendar para o investidor {investidor_id}: {str(e)}"}
+        #return {"error": f"Erro ao recomendar para o investidor {investidor_id}: {str(e)}"}
+        recomendadas = list(startup.sort_values(by='votos', ascending=False)['id_empresa'][:n_recomendacoes])
+        return {"investidor_id": investidor_id, "startups_recomendadas": recomendadas}
 
 # Rota para obter recomendações de startups para um investidor
 @app.route("/recomendacao/<int:investidor_id>", methods=["GET"])
@@ -83,4 +85,4 @@ def recomendacao(investidor_id):
 
 # Executando o servidor Flask
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=True, host="0.0.0.0")
